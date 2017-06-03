@@ -1,0 +1,248 @@
+<html>
+
+<body>
+    <script>
+        var unmangle = confirm("set mode for data extraction?");
+        /**
+        This is a demonstration of a covert channel that could be
+        used to pass information without being noticed.
+        */
+        /**
+        Create a file input with input bindings
+        */
+        function fileInput() {
+            this.inp = document.createElement("input");
+            this.inp.type = "file";
+            this.inp.multiple = true;
+            this.files = [];
+            this.canvases = [];
+            this.ctxes = [];
+            this.done = 0;
+            document.body.appendChild(this.inp);
+            this.load = this.load.bind(this);
+
+            this.inp.onchange = this.load;
+        }
+
+        /**
+        on chage binding function to figure out if we're done loading everything
+        */
+        fileInput.prototype.load = function () {
+            console.log(this.inp.files);
+            for (var i = 0; i < this.inp.files.length; ++i) {
+                var found = false;
+                for (var j = 0; j < this.files.length; ++j) {
+                    found = found || (this.files[j].name == this.inp.files[i].name);
+                }
+                if (!found) {
+                    var file = this.inp.files[i];
+                    this.files.push(file);
+                    this.readAnImg(file);
+                }
+            }
+        };
+
+        /**
+        get image as data
+        */
+        fileInput.prototype.asData = function (i) {
+            var w = this.canvases[i].width,
+                h = this.canvases[i].height;
+            return this.ctxes[i].getImageData(0, 0, w, h);
+        };
+
+        /**
+        extract a message!
+        */
+        fileInput.prototype.extractMessage = function (i) {
+            var d = this.asData(i);
+            var mesat = 0;
+            var str1 = "";
+            for (var j = 0, at = d.data, m = at.length; j < m; j += 4) {
+                //at[j] = 0xFF^at[j];
+                var char = 0;
+                char |= (at[j + 0] & 0x7) << 0;
+                char |= (at[j + 1] & 0x7) << 3;
+                char |= (at[j + 2] & 0x3) << 6;
+
+                if (char == 0)
+                    break;
+                str1 += String.fromCharCode(char);
+                //at[j + 2] = 0xFF^at[j + 2];
+            }
+            console.log(str1);
+            //this.ctxes[i].putImageData(d, 0, 0);
+        };
+
+        /**
+        Mangle the data!
+        */
+        fileInput.prototype.mangleData = function (i, message) {
+            var d = this.asData(i);
+            var mesat = 0;
+            var prob = message.length * 100 / d.data.length;
+            for (var j = 0, at = d.data, m = at.length; j < m; j += 4) {
+                //at[j] = 0xFF^at[j];
+                if (mesat < message.length) {
+                    //console.log(mesat, "at", j);
+                    var char = message.charCodeAt(mesat++);
+                    at[j + 0] = (at[j + 0] & 0xF8) | ((char >> 0) & 0x7);
+                    at[j + 1] = (at[j + 1] & 0xF8) | ((char >> 3) & 0x7);
+                    at[j + 2] = (at[j + 2] & 0xFC) | ((char >> 6) & 0x3);
+                }
+                //at[j + 2] = 0xFF^at[j + 2];
+            }
+            console.log(message.length, mesat);
+            this.ctxes[i].putImageData(d, 0, 0);
+        };
+
+        /**
+        read in an image and determine whether to mangle or extract it.
+        We need 2 images to extract.
+        simple 1==1 means extract, and 1==0 means mangle
+        */
+        fileInput.prototype.readAnImg = function (sourcefile) {
+            var reader = new FileReader();
+            var self = this;
+            var canvas = document.createElement("canvas");
+            var ctx = canvas.getContext("2d");
+            this.ctxes.push(ctx);
+            document.body.appendChild(canvas);
+            this.canvases.push(canvas);
+            reader.onload = function (event) {
+                var img = new Image();
+                img.onload = function () {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    self.done++;
+                    if (unmangle) {
+                        if (self.done == 1) {
+                            self.extractMessage(0);
+                        }
+                    } else {
+                        console.log(self.mangleData(self.files.length - 1, `<html>
+
+<body>
+  <script>
+    function fileInput() {
+      this.inp = document.createElement("input");
+      this.inp.type = "file";
+      this.inp.multiple = true;
+      this.files = [];
+      this.canvases = [];
+      this.ctxes = [];
+      this.done = 0;
+      document.body.appendChild(this.inp);
+      this.load = this.load.bind(this);
+
+      this.inp.onchange = this.load;
+    }
+
+    fileInput.prototype.load = function () {
+      console.log(this.inp.files);
+      for (var i = 0; i < this.inp.files.length; ++i) {
+        var found = false;
+        for (var j = 0; j < this.files.length; ++j) {
+          found = found || (this.files[j].name == this.inp.files[i].name);
+        }
+        if (!found) {
+          var file = this.inp.files[i];
+          this.files.push(file);
+          this.readAnImg(file);
+        }
+      }
+    };
+
+    fileInput.prototype.asData = function (i) {
+      var w = this.canvases[i].width,
+        h = this.canvases[i].height;
+      return this.ctxes[i].getImageData(0, 0, w, h);
+    };
+
+    fileInput.prototype.extractMessage = function (i, j) {
+      var d = this.asData(i);
+      var e = this.asData(j);
+      var mesat = 0;
+      var str1 = "",
+        str2 = "";
+      for (var j = 0, at = d.data, bt = e.data, m = at.length; j < m; ++j) {
+        //at[j] = 0xFF^at[j];
+        if (at[j] != bt[j]) {
+          str1 += String.fromCharCode(at[j]);
+          str2 += String.fromCharCode(bt[j]);
+        }
+        //at[j + 2] = 0xFF^at[j + 2];
+      }
+      console.log(str1);
+      console.log(str2);
+      //this.ctxes[i].putImageData(d, 0, 0);
+    };
+
+    fileInput.prototype.mangleData = function (i, message) {
+      var d = this.asData(i);
+      var mesat = 0;
+      var prob = message.length * 100 / d.data.length;
+      for (var j = 0, at = d.data, m = at.length; j < m; ++j) {
+        //at[j] = 0xFF^at[j];
+        if(j%4==0)continue;
+        if (mesat < message.length) {
+          var sh = Math.abs(message.charCodeAt(mesat) - at[j]);
+          if (sh > 0 && sh < 65) {
+            //console.log(mesat, "at", j);
+            at[j] = message.charCodeAt(mesat++);
+          }
+        }
+        //at[j + 2] = 0xFF^at[j + 2];
+      }
+      console.log(message.length, mesat);
+      this.ctxes[i].putImageData(d, 0, 0);
+    };
+
+    fileInput.prototype.readAnImg = function (sourcefile) {
+      var reader = new FileReader();
+      var self = this;
+      var canvas = document.createElement("canvas");
+      var ctx = canvas.getContext("2d");
+      this.ctxes.push(ctx);
+      document.body.appendChild(canvas);
+      this.canvases.push(canvas);
+      reader.onload = function (event) {
+        var img = new Image();
+        img.onload = function () {
+          canvas.width = img.width;
+          canvas.height = img.height;
+          ctx.drawImage(img, 0, 0);
+          self.done++;
+          if (0 == 1) {
+            if (self.done == 2) {
+              self.extractMessage(0, 1);
+            }
+          } else {
+            console.log(self.mangleData(self.files.length - 1, 'Boop!'));
+          }
+        }
+        img.src = event.target.result;
+      }
+      reader.readAsDataURL(sourcefile);
+    };
+
+
+    var myinp = new fileInput();
+  </` + `script>
+</body>
+
+</html>` + String.fromCharCode(0)));
+                    }
+                }
+                img.src = event.target.result;
+            }
+            reader.readAsDataURL(sourcefile);
+        };
+
+
+        var myinp = new fileInput();
+    </script>
+</body>
+
+</html>
